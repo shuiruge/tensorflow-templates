@@ -44,6 +44,7 @@ in training. Instead, we will update parameters by running optimizer by one
 time for all data_X and data_Y, and repeat several times.
 """
 
+## For compatible with Python2
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -104,6 +105,9 @@ with my_graph.as_default():
         ## but as placeholders.
 
         ## **After input, `X` and `Y` will become `tf.constant`s.**
+        ##
+        ## Thus, they are not instances of `tf.Variable`, thus will not be affected as
+        ## training by optimizer. See below.
 
         X = tf.placeholder(tf.float32, name='X')
         Y = tf.placeholder(tf.float32, name='Y')
@@ -115,13 +119,15 @@ with my_graph.as_default():
 
         ## `w` and `b` are those parameters to be trained, to be updated in every epoch
         ## of the later training, **by optimizer**. Thus they are different from the `X`
-        ## and `Y`, which will not be updated **by optimizer**.
+        ## and `Y`, which will not be updated **by optimizer**, as previous put. See
+        ## below.
 
-        ## Notice that `tf.Variable` (with capitial "V") is a class, different from
-        ## `tf.placeholder`, as the `X` and `Y`.
+        ## (Notice that `tf.Variable` is a class, different from `tf.placeholder`.)
+
+        ## Instances of `tf.Variable` shall be initialized to some values, since these
+        ## values will be as the starting point of the later training by optimizer.
 
         ## Initialize `w` and `b` as `0.0`.
-
         w = tf.Variable(0.0, name='weight')
         b = tf.Variable(0.0, name='bias')
 
@@ -132,16 +138,19 @@ with my_graph.as_default():
 
         # `tf.multiply` and `tf.add` are element-wise, thus `X` can be of any shape.
 
-        z = tf.multiply(w, X)
-        predict = tf.add(z, b)
+        ## In this way, the `z`, `predict`, `errors`, and `cost` are automatically
+        ## an instance of `tf.Variable`.
+
+        predict = tf.add(b,
+                         tf.multiply(w, X),
+                         name='predict'
+                         )
 
         errors = tf.subtract(Y, predict, name='errors')
+
         cost = tf.reduce_sum(
                    tf.square(errors), name='cost'
                    )
-
-        ## In this way, the `z`, `predict`, `errors`, and `cost` are automatically
-        ## an instance of `tf.Variable`.
 
 
 
@@ -163,7 +172,8 @@ with my_graph.as_default():
 
 
 
-    ## Thus Finished constructing the TensorFlow graph.
+
+    ## Thus Finished the construction of TensorFlow graph.
 
 
 
@@ -184,7 +194,9 @@ def generate_dummy_data(X_size):
     Args:
         X_size: int
     Returns:
-        (data_X: np.array(float), data_Y: np.array(float))
+        (data_X: np.array(float),
+         data_Y: np.array(float)
+         )
         where len(data_X) = len(data_Y) = X_size.
     """
 
@@ -210,6 +222,20 @@ data_X, data_Y = generate_dummy_data(X_size)
 with tf.Session(graph=my_graph) as sess:
 
 
+    # Write to TensorBoard
+    # ---------
+
+    ## With this, you can run, after running `python basics.py`,
+    ## `tensorboard --logdir=graphs/` in terminal to show up the
+    ## graph in browser.
+
+    logdir = './graphs'
+
+    writer = tf.summary.FileWriter(logdir, sess.graph)
+
+
+
+
     # Initialize `tf.Variable`
     # ---------
 
@@ -220,6 +246,7 @@ with tf.Session(graph=my_graph) as sess:
 
     initializer = tf.global_variables_initializer()
     sess.run(initializer)
+
 
 
 
@@ -240,6 +267,7 @@ with tf.Session(graph=my_graph) as sess:
 
 
 
+
     # Return the Best-Fits
     # ---------
 
@@ -249,6 +277,10 @@ with tf.Session(graph=my_graph) as sess:
 
     w_fitted, b_fitted = sess.run([w, b])
 
+
+
+## Close FileWriter:
+writer.close()
 
 
 
