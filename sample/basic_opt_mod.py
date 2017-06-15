@@ -18,7 +18,7 @@ This template makes:
        
 It includes:
     
-    1. A model template in the `BasicTensorFlowModel`.
+    1. A model template in the `BasicOptimizationalModel`.
     
     2. A general trainer in the `Trainer`, which support the most general
        training process, employing arbitrary collection of data-sets (e.g.
@@ -28,8 +28,8 @@ It includes:
 HOWTO
 ------
 
-To use this template, just scan over the code of `BasicTensorFlowModel`, while
-taking care of the docstrings (i.e. those "Notes" and inline docstrings).
+To use this template, just scan over the code of `BasicOptimizationalModel`,
+while taking care of the docstrings (i.e. those "Notes" and inline docstrings).
 While scaning, modify those helper blocks as you need. When scaning ends, you
 then construct the model you want.
 
@@ -75,8 +75,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-script_path = os.path.dirname(os.path.abspath( __file__ ))
 
 
 # Import TensorFlow
@@ -86,15 +84,14 @@ script_path = os.path.dirname(os.path.abspath( __file__ ))
 import tensorflow as tf
 import numpy as np
 
+import os
 from utils import ensure_directory  # `tf.Saver()` cannot save if the directory
                                     # does not exist. Sounds funny.
-import matplotlib.pyplot as plt  # to show the result up.
 
 
 
 
-
-class BasicTensorFlowModel:
+class BasicOptimizationalModel:
     """
     A basic template of optimizational model on TensorFlow, in the style of
     TensorFlow, i.e. stype of graphical. This is a simple linear regression model.
@@ -448,7 +445,14 @@ class Trainer:
         # (i.e. training, validation, and testing, etc).
         self._writers = []
         for i, _ in enumerate(self.batch_generators):
-            writer = tf.summary.FileWriter(self.path_to_graph, self._sess.graph)
+            # Summery of different data shall be written into
+            # different directory, helpful for `tensorboard`.
+            writer = tf.summary.FileWriter(
+                         os.path.join(self.path_to_graph,
+                                      '{0}/'.format(i)
+                                      ),
+                         self._sess.graph
+                         )
             self._writers.append(writer)
 
         # global_step to keep track of checkpoint
@@ -486,8 +490,8 @@ class Trainer:
 
     def _train_by_feeding(self, global_step):
         """
-        Train the model by feeding the data (`model.inputs` and `model.targets`
-        from `batch_generators`.
+        Train the model by feeding the data (`self.model.inputs` and
+        `self.model.targets`) from `batch_generators`.
         
         Args:
             global_step: int
@@ -495,10 +499,15 @@ class Trainer:
         
         for i, batch_generator in enumerate(self.batch_generators):
             
-            inputs, targets = next(batch_generator)
+            try:
+                batch = batch_generator.next()
+                inputs, targets = batch
+            except Exception as e:
+                print(e)
+                print(batch)
             
-            feed_dict = {  model.inputs: inputs,
-                           model.targets: targets
+            feed_dict = {  self.model.inputs: inputs,
+                           self.model.targets: targets
                            }
             
             if i == 0:  
@@ -507,14 +516,14 @@ class Trainer:
                 # self.model.
                 # (Recall that we have demanded to place the batch-generator of
                 #  training data to the first place of the list of generators.)
-                self._sess.run(model.optimizer,
+                self._sess.run(self.model.optimizer,
                                feed_dict=feed_dict
                                )
             else:
                 pass
             
             # Write to `tensorboard`.
-            summary = self._sess.run(model.summary,
+            summary = self._sess.run(self.model.summary,
                                      feed_dict=feed_dict
                                      )
             self._writers[i].add_summary(summary,
@@ -583,12 +592,18 @@ if __name__ == "__main__":
     
     # Parameters
     # ---------
+
+    script_path = os.path.dirname(os.path.abspath( __file__ ))
+
     path_to_graph = os.path.join(script_path,
                                  '../dat/graphs/'
                                  )
     path_to_checkpoint = os.path.join(script_path,
-                                      '../dat/checkpoints/basic_tf_mod.ckpt'
+                                      '../dat/checkpoints/basic_opt_mod.ckpt'
                                       )
+
+    path_to_plot = os.path.join(script_path, '../dat/fig.png')
+                
     
     
     # Digression: Generate Dummay Data
@@ -629,52 +644,63 @@ if __name__ == "__main__":
     
     # Construct Batch Generators
     # ---------
-    
-    def batch_generator(data_X=data_X, data_Y=data_Y, batch_size=10):
+
+    class BatchGenerator:
         """
-        Args:
-            data_X: np.array(float)
-            data_Y: np.array(float)
-            batch_size: int
-        Yield:
-            (np.array(float), np.array(float))
-            with the two arraies the same length, as `batch_size`.
+        This contains the basic structure of generator as a convienent class.
         """
         
-        while True:
+        def __init__(self, input_data, target_data, batch_size):
+            """
+            Args:
+                input_data: np.array(float)
+                target_data: np.array(float)
+                batch_size: int
+            Methods:
+                next()
+            """
+ 
+            self._data = list(zip(input_data, target_data))
+            self.batch_size = batch_size
             
-            xs = []
-            ys = []
-            
-            for i in range(batch_size):
+
+        def next(self):
+            """
+             Return:
+                (inputs: np.array(float), targets: np.array(float))
+                with the two arraies the same length, as `self.batch_size`.
+                This output is randomly generated.
+            """
+                    
+            inputs = []
+            targets = []
+
+            for i in range(self.batch_size):
         
-                p = random.randint(0, X_size - 1)
+                x, y = random.choice(self._data)
+                inputs.append(x)
+                targets.append(y)
+
+            batch = (np.array(inputs), np.array(targets))
                 
-                x = data_X[p]
-                y = data_Y[p]
-                
-                xs.append(x)
-                ys.append(y)
-                
-            batch = (np.array(xs), np.array(ys))
-            
-            yield batch
-    
+            return batch
+        
     
     batch_generators = []
-    
+
     for i in range(2):
         
-        bg = batch_generator()
-        
+        bg = BatchGenerator(data_X, data_Y, 10)
+
         batch_generators.append(bg)
-        
-    
-    
+
+
+
+   
     # Set up and Train the Model
     # ---------
     
-    model = BasicTensorFlowModel()
+    model = BasicOptimizationalModel()
     
     trainer = Trainer(model,
                       batch_generators,
@@ -711,6 +737,11 @@ if __name__ == "__main__":
     # Plot the Result
     # ---------
     
+    import matplotlib
+    matplotlib.use('Agg') # Must be before importing matplotlib.pyplot or pylab!
+    import matplotlib.pyplot as plt
+
     plt.plot(data_X, data_Y, '.')
     plt.plot(data_X, best_fit_Y, '--')
+    plt.savefig(path_to_plot)
     plt.show()
