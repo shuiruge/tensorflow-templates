@@ -4,27 +4,11 @@
 Description
 ---------
 
-This template makes:
+This template constructs a model via TensorFlow graph. (Herein, examplify
+this by linear regression, which is simple enough for keeping mind clear.)
 
-    1. Construct a model via TensorFlow graph. (Herein, examplify this by
-       linear regression, which is simple enough for keeping mind clear.)
 
-    2. Run the graph by `tf.Session`.
 
-    3. Save graph and checkpoint.
-
-    4. Run the trained model outside of its training by restore the model from
-       the trained checkpoint.
-       
-It includes:
-    
-    1. A model template in the `BasicOptimizationalModel`.
-    
-    2. A general trainer in the `Trainer`, which support the most general
-       training process, employing arbitrary collection of data-sets (e.g.
-       training data, validation data, testing data, etc).
-       
-       
 HOWTO
 ------
 
@@ -36,8 +20,6 @@ then construct the model you want.
 (Note that those "Notes" in docstrings (briefly) illustrate the underlying
 principle of TensorFlow, while the inline docstring provides the guide of
 modification.)
-
-The `Trainer` is general, thus needs little modification.
 
 And then, imitate the code in the `if __name__ == "__main__"` to run them all.
 
@@ -67,6 +49,13 @@ we are to find the values of parameters `w` and `b`, s.t. the cost-function
 
 is minimized. In addition, we call the `weight` and the `bias`,in according to
 the terminology of neural network.
+
+
+
+TODO
+---
+
+[ ]  Add practical `parameters`.
 """
 
 
@@ -84,10 +73,6 @@ from __future__ import print_function
 import tensorflow as tf
 import numpy as np
 
-import os
-from utils import ensure_directory  # `tf.Saver()` cannot save if the directory
-                                    # does not exist. Sounds funny.
-
 
 
 
@@ -101,6 +86,7 @@ class BasicOptimizationalModel:
     by yourself, to consist with your model.
 
     Attributes:
+        <parameter>s: tf.constant, for each <parameter>
         inputs: tf.placeholder
         targets: tf.placeholder
         outputs: tf.Variable (?)
@@ -122,7 +108,8 @@ class BasicOptimizationalModel:
             A general algorithm of a optimizational system, e.g. neural network,
             involves several general steps:
 
-                1. placeholders for inputs and targets as a mini-batch;
+                1. placeholders for parameters, and for inputs and targets as a
+                   mini-batch;
                 2. outputs of the inputs in the mini-batch made by the model;
                 3. then cost-function, so as to characterize the distinces
                    between outputs and targets;
@@ -162,7 +149,8 @@ class BasicOptimizationalModel:
         """
         Helper block of `self._build_graph()`.
 
-        1. placeholders for inputs and targets as a mini-batch;
+        1. placeholders for parameters, and for inputs and targets as a
+           mini-batch;
 
         Notes:
             `self.inputs` and `self.targets` are placeholders, since they are
@@ -171,11 +159,30 @@ class BasicOptimizationalModel:
             graph are seperated.
 
             **After insertion into the placeholders while running in session,
-            `self.inputs` and `self.targets` will become `tf.constant`s.**
+            `self.inputs` and `self.targets` will become `tf.Tensor`s.**
+
+            (But, actually they are NOT. E.g. a `tf.Tensor` cannot be as
+            a parameter of a function in the graph, like the `output_keep_prob`
+            in `DropoutWrapper()`, however a fed `tf.placeholder` can be.
+            Strange forsooth, c.f. the "**important**" section in the link
+            "https://www.tensorflow.org/api_docs/python/tf/placeholder".)
 
             Thus, they are not instances of `tf.Variable`, thus will not be
             affected as training by optimizer. See below.
         """
+
+        with tf.name_scope('parameters'):
+            
+            # As an instance, they are set as default by `1.0` and `0.0`,
+            # respectively.
+            self.param_1 = tf.constant(1.0,
+                                       name='param_1'
+                                       )
+            self.param_2 = tf.constant(0.0,
+                                       name='param_2'
+                                       )
+
+
         
         # The `shape` of `self.inputs` and `self.targets` shall be consistent
         # with your model.
@@ -340,240 +347,6 @@ class BasicOptimizationalModel:
 
 
 
-class Trainer:
-    """
-    Train the model by feeding training, vaidation, testing data, etc.
-
-
-    Args:
-        model:
-            Can be any optimizational model on tensorflow (as class) as long as
-            involving the following attributes:
-                model.graph, model.inputs, model.targets,
-                model.optimizer, model.summary.
-                
-        batch_generators: [Generator]
-            Each generator yield a mini-batch of data for training, validation,
-            or testing, respectively. We assume that the `batch_generators[0]`
-            is that for training data, which will be used by `self.optimizer`.
-            
-        max_training_steps: int
-            The training will start at a restored checkpoint, as its inital step,
-            the practical maximum of training steps is the sum of the initial
-            step and the `max_training_steps`.
-            
-        skip_step: int
-            While training, the trainer will save the checkpoint for every
-            `skip_step` steps.
-            
-        path_to_checkpoint: str
-            Path to the `checkpoint` (*.ckpt) file which restore (if exists)
-            or save checkpoint of training. It shall be of the form:
-                
-                '<path_to_checkpoints_dir>/<model_name>.ckpt'.
-                
-        path_to_graph: str
-            Path to the `logdir` of `tensorboard`, in which the training summary
-            of the model is to be saved.
-    """
-    
-    def __init__(self,
-                 model,
-                 batch_generators,
-                 max_training_steps,
-                 skip_step,
-                 path_to_graph,
-                 path_to_checkpoint
-                 ):
-        
-        self.model = model
-        self.batch_generators = batch_generators
-        self.max_training_steps = max_training_steps
-        self.skip_step = skip_step
-        self.path_to_graph = path_to_graph
-        self.path_to_checkpoint = path_to_checkpoint  
-        
-        self._sess = tf.Session(graph=self.model.graph)
-        
-
-
-    def train(self):
-        """ Train the model. """
-        
-        with self._sess:
-
-            self._prepare_for_training()
-            
-            training_steps = range(self._initial_step,
-                                   self.max_training_steps
-                                   )
-            for step in training_steps:
-    
-                self._train_by_feeding(step)
-                
-                if (step + 1) % self.skip_step == 0:
-                    
-                    self._save_checkpoint(step)
-                
-                else:
-                    pass
-            
-            self._postpare_for_training()
-        
-
-
-
-    def _prepare_for_training(self):
-        """
-        General setup of preparing for a training of TensorFlow model.
-        
-        Explicitly:
-            1. create writers for each data-set (training, validation, testing,
-               etc);
-            
-            2. initialize global step, which keep track of checkpoint;
-            
-            3. create saver;
-            
-            4. initialize all `tf.Variable`s in the model.
-            
-            5. get the latest checkpoint. if exists, then continue the training
-               from the latest checkpoint.
-        """
-        
-        # Create writer for each data-set
-        # (i.e. training, validation, and testing, etc).
-        self._writers = []
-        for i, _ in enumerate(self.batch_generators):
-            # Summery of different data shall be written into
-            # different directory, helpful for `tensorboard`.
-            writer = tf.summary.FileWriter(
-                         os.path.join(self.path_to_graph,
-                                      '{0}/'.format(i)
-                                      ),
-                         self._sess.graph
-                         )
-            self._writers.append(writer)
-
-        # global_step to keep track of checkpoint
-        self._global_step = tf.Variable(0, dtype=tf.int32, trainable=False)
-        
-        # Create saver
-        self._saver = tf.train.Saver()
-        
-        # Initialize all `tf.Variable`s in one go
-        self._sess.run(tf.global_variables_initializer())
-        
-        # Get checkpoint
-        # CAUTION that the arg of `get_checkpoint_state` is `checkpoint_dir`,
-        # i.e. the directory of the `checkpoint` to be restored from.
-        ckpt = tf.train.get_checkpoint_state(
-                os.path.dirname(self.path_to_checkpoint)
-                )
-        self._initial_step = 0
-
-        # If that checkpoint exists, then restore from the checkpoint
-        if ckpt and ckpt.model_checkpoint_path:
-            
-            self._saver.restore(self._sess,ckpt.model_checkpoint_path)
-            
-            # A rude way of reading the step of the latest checkpoint.
-            # And assign it as the initial step of the later training.
-            self._initial_step = \
-                int(ckpt.model_checkpoint_path.rsplit('-', 1)[1])
-            
-        else:
-            pass
-        
-        
-        
-
-    def _train_by_feeding(self, global_step):
-        """
-        Train the model by feeding the data (`self.model.inputs` and
-        `self.model.targets`) from `batch_generators`.
-        
-        Args:
-            global_step: int
-        """
-        
-        for i, batch_generator in enumerate(self.batch_generators):
-            
-            try:
-                batch = batch_generator.next()
-                inputs, targets = batch
-            except Exception as e:
-                print(e)
-                print(batch)
-            
-            feed_dict = {  self.model.inputs: inputs,
-                           self.model.targets: targets
-                           }
-            
-            if i == 0:  
-                # Meaning that it's training data. For training data, we shall
-                # update the parameters (i.e. `trainable` `tf.Variable`s)in
-                # self.model.
-                # (Recall that we have demanded to place the batch-generator of
-                #  training data to the first place of the list of generators.)
-                self._sess.run(self.model.optimizer,
-                               feed_dict=feed_dict
-                               )
-            else:
-                pass
-            
-            # Write to `tensorboard`.
-            summary = self._sess.run(self.model.summary,
-                                     feed_dict=feed_dict
-                                     )
-            self._writers[i].add_summary(summary,
-                                         global_step=global_step
-                                         )
-            
-
-            
-
-    def _save_checkpoint(self, global_step):
-        """
-        Args:
-            global_step: int
-        """
-
-        # `tf.saver` cannot automatically mkdir, so
-        ensure_directory(self.path_to_checkpoint)
-        
-        self._saver.save(self._sess,
-                         self.path_to_checkpoint,
-                         global_step=global_step
-                         )
-        
-    
-    
-    def _postpare_for_training(self):
-        """
-        General setup of postparing for a training of TensorFlow model.
-        
-        Explicitly:
-            1. write the training summaries to disk (for `tensorboard`);
-            
-            2. close writers
-            
-            3. close session.
-        """
-        
-        # While ending:
-        for writer in self._writers:
-            
-            # Write the summaries to disk
-            writer.flush()
-            
-            # Close the SummaryWriter
-            writer.close()
-            
-        # Close the session
-        self._sess.close()
-
-
 
 
 if __name__ == "__main__":
@@ -585,10 +358,14 @@ if __name__ == "__main__":
            for training, validation, or testing, etc;
         3. set up and train the model with mini-batches emited from batch
            generators;
-        4. restore the model and compute the outputs (predictions) as the result
-           of the training;
+        4. restore the model after the training, and compute the outputs
+           (predictions) as the result of the training;
         5. plot the result of training out.
     """
+
+    import os
+    from trainer import Trainer
+
     
     # Parameters
     # ---------
@@ -701,8 +478,10 @@ if __name__ == "__main__":
     # ---------
     
     model = BasicOptimizationalModel()
+    parameters = {}  # No parameter to be tuned in the model.
     
     trainer = Trainer(model,
+                      parameters,
                       batch_generators,
                       max_training_steps=10 ** 3,
                       skip_step=10,

@@ -25,11 +25,9 @@ def ensure_directory(directory):
     """
     try:
         directory = os.path.expanduser(directory)
-
         os.makedirs(directory)
     
-    except FileExistsError:
-        
+    except:
         pass
 
     return None
